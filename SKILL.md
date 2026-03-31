@@ -40,8 +40,8 @@ Display each session's ID, file size, last modified time, and first 5 user messa
 ### `clean [project-path]`
 
 1. Run `list` to display the full session list
-2. Find all sessions with no user messages (zero lines where `role == "user"`)
-3. Delete them immediately — no confirmation needed, as they contain no conversation content
+2. Find all sessions with no meaningful user messages — excludes lines where all content starts with `<` (system-injected commands like `/clear`, `/exit`, `<local-command-caveat>`)
+3. Delete them immediately — no confirmation needed, as they contain no human conversation
 4. Display deletion results, then show the remaining session list
 
 Inline Python to execute:
@@ -50,18 +50,32 @@ Inline Python to execute:
 import json, os, glob
 
 project_dir = "<resolved project_dir>"
-deleted = []
-for fpath in glob.glob(project_dir + "/*.jsonl"):
-    has_user = False
-    with open(fpath) as f:
+
+def has_human_message(fpath):
+    with open(fpath, encoding="utf-8") as f:
         for line in f:
             try:
-                if json.loads(line).get("message", {}).get("role") == "user":
-                    has_user = True
-                    break
+                obj = json.loads(line)
+                if obj.get("message", {}).get("role") != "user":
+                    continue
+                content = obj["message"].get("content", "")
+                if isinstance(content, list):
+                    text = " ".join(
+                        c.get("text", "") for c in content
+                        if isinstance(c, dict) and c.get("type") == "text"
+                    )
+                else:
+                    text = str(content)
+                text = text.strip()
+                if text and not text.startswith("<"):
+                    return True
             except:
                 pass
-    if not has_user:
+    return False
+
+deleted = []
+for fpath in glob.glob(project_dir + "/*.jsonl"):
+    if not has_human_message(fpath):
         deleted.append(os.path.basename(fpath))
         os.remove(fpath)
 
