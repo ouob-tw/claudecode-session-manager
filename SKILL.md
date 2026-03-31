@@ -73,13 +73,20 @@ def has_human_message(fpath):
                 pass
     return False
 
+import shutil
+use_trash = shutil.which("trash") is not None
+
 deleted = []
 for fpath in glob.glob(project_dir + "/*.jsonl"):
     if not has_human_message(fpath):
         deleted.append(os.path.basename(fpath))
-        os.remove(fpath)
+        if use_trash:
+            os.system(f"trash {fpath}")
+        else:
+            os.remove(fpath)
 
-print(f"Deleted {len(deleted)} empty sessions:")
+action = "Trashed" if use_trash else "Deleted"
+print(f"{action} {len(deleted)} empty sessions:")
 for f in deleted:
     print(f"  - {f}")
 ```
@@ -89,9 +96,13 @@ for f in deleted:
 ### `delete <session-id> [project-path]`
 
 1. Display the session's basic info (size, time, first few messages) for review
-2. Delete after confirmation:
+2. Delete after confirmation — use `trash` if available, otherwise `rm`:
 
 ```bash
+# prefer trash (recoverable)
+trash ~/.claude/projects/<project-key>/<session-id>.jsonl
+
+# fallback if trash not installed
 rm ~/.claude/projects/<project-key>/<session-id>.jsonl
 ```
 
