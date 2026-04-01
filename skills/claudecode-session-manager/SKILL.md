@@ -42,12 +42,13 @@ Display each session's ID, file size, last modified time, and first 5 user messa
 1. Run `list` to display the full session list
 2. Find all sessions with no meaningful user messages — excludes lines where all content starts with `<` (system-injected commands like `/clear`, `/exit`, `<local-command-caveat>`)
 3. Delete them immediately — no confirmation needed, as they contain no human conversation
-4. Display deletion results, then show the remaining session list
+4. Also clean up UUID subdirectories (subagent sessions): if a UUID dir has no subagent `.jsonl` with meaningful messages, delete the entire UUID directory
+5. Display deletion results, then show the remaining session list
 
 Inline Python to execute:
 
 ```python
-import json, os, glob
+import json, os, glob, shutil
 
 project_dir = "<resolved project_dir>"
 
@@ -73,22 +74,43 @@ def has_human_message(fpath):
                 pass
     return False
 
-import shutil
 use_trash = shutil.which("trash") is not None
 
-deleted = []
+def delete_path(path):
+    if use_trash:
+        os.system(f"trash {shutil.quote(path)}")
+    elif os.path.isdir(path):
+        shutil.rmtree(path)
+    else:
+        os.remove(path)
+
+deleted_sessions = []
+deleted_uuid_dirs = []
+
+# Clean root-level .jsonl sessions
 for fpath in glob.glob(project_dir + "/*.jsonl"):
     if not has_human_message(fpath):
-        deleted.append(os.path.basename(fpath))
-        if use_trash:
-            os.system(f"trash {fpath}")
-        else:
-            os.remove(fpath)
+        deleted_sessions.append(os.path.basename(fpath))
+        delete_path(fpath)
+
+# Clean UUID subdirectories (subagent sessions)
+import re
+uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+for entry in os.scandir(project_dir):
+    if not entry.is_dir() or not uuid_pattern.match(entry.name):
+        continue
+    subagent_files = glob.glob(entry.path + "/subagents/*.jsonl")
+    if not subagent_files or not any(has_human_message(f) for f in subagent_files):
+        deleted_uuid_dirs.append(entry.name)
+        delete_path(entry.path)
 
 action = "Trashed" if use_trash else "Deleted"
-print(f"{action} {len(deleted)} empty sessions:")
-for f in deleted:
+print(f"{action} {len(deleted_sessions)} empty sessions:")
+for f in deleted_sessions:
     print(f"  - {f}")
+print(f"{action} {len(deleted_uuid_dirs)} empty UUID subagent dirs:")
+for d in deleted_uuid_dirs:
+    print(f"  - {d}/")
 ```
 
 ---
@@ -96,14 +118,17 @@ for f in deleted:
 ### `delete <session-id> [project-path]`
 
 1. Display the session's basic info (size, time, first few messages) for review
-2. Delete after confirmation — use `trash` if available, otherwise `rm`:
+2. Delete after confirmation — use `trash` if available, otherwise `rm`
+3. Also delete the UUID subdirectory `<session-id>/` if it exists (contains subagent sessions)
 
 ```bash
 # prefer trash (recoverable)
 trash ~/.claude/projects/<project-key>/<session-id>.jsonl
+trash ~/.claude/projects/<project-key>/<session-id>   # if dir exists
 
 # fallback if trash not installed
 rm ~/.claude/projects/<project-key>/<session-id>.jsonl
+rm -rf ~/.claude/projects/<project-key>/<session-id>  # if dir exists
 ```
 
 ---
